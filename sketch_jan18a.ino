@@ -13,14 +13,43 @@ const int buttonDown = A1;
 const int buttonEnter = A2;
 const int buttonExit = A3;
 
+// List of all locations
+const char *locations[] = {
+  "Akurdi Railway St",
+  "Sambhaji Chowk",
+  "Bijalinagar Corn",
+  "Chaphekar Chowk",
+  "Chinchwad Gaon",
+  "M.M.School BRTS",
+  "Dhangarbaba Mand",
+  "Rahatani Phata",
+  "Nakhate Wasti",
+  "Rahatani Gaon",
+  "Pimple Saudagar",
+  "Aundh Gaon",
+  "Pune Vidyapeeth",
+  "Pune Central Ma",
+  "Shivajinagar",
+  "C.O.E.P.Hostel ",
+  "Manapa Bhavan"
+};
+
+int selectedPickupIndex = -1;
+int selectedDropIndex = -1;
+float fare = -1.0;
+
 int selectedOption = 1; // Initial menu option
+
+void displayMenu(int option);
+int selectLocation(const char *title, int &selectedIndex);
+float calculateFare(int pickupIndex, int dropIndex);
 
 void setup() {
   Serial.begin(9600);
 
-  if(!display.begin(SSD1306_PAGEADDR, 0x3C)) {
+  if (!display.begin(SSD1306_PAGEADDR, 0x3C)) {
     Serial.println(F("SSD1306 allocation failed"));
-    for(;;);
+    for (;;);
   }
 
   pinMode(buttonUp, INPUT_PULLUP);
@@ -30,26 +59,6 @@ void setup() {
 
   delay(2000);
   display.clearDisplay();
-  display.display();
-}
-
-void displayMenu(int option) {
-  display.clearDisplay();
-  display.setTextSize(1);
-  display.setTextColor(SSD1306_WHITE);
-  display.setCursor(0, 0);
-
-  // Display menu options
-  display.print(F("1. Select Pickup.\n"));
-  display.print(F("2. Select Drop.\n"));
-  display.print(F("3. Payment.\n"));
-  display.print(F("4. Exit.\n"));
-
-  // Highlight the selected option
-  display.setCursor(0, (option - 1) * 8);
-  display.setTextColor(SSD1306_BLACK, SSD1306_WHITE);
-  display.print(option);
-  display.setTextColor(SSD1306_WHITE);
   display.display();
 }
 
@@ -69,55 +78,146 @@ void loop() {
 
   if (digitalRead(buttonEnter) == LOW) {
     delay(200); // debounce
-    executeOption(selectedOption);
+    if (selectedOption == 1) {
+      // Select Pickup
+      selectedPickupIndex = selectLocation("Select Pickup", selectedPickupIndex);
+    } else if (selectedOption == 2) {
+      // Select Drop
+      selectedDropIndex = selectLocation("Select Drop", selectedDropIndex);
+    } else if (selectedOption == 3) {
+      // Payment option selected
+      Serial.println(F("Payment option selected"));
+
+      // Check if both pickup and drop locations are selected
+      if (selectedPickupIndex != -1 && selectedDropIndex != -1) {
+        fare = calculateFare(selectedPickupIndex, selectedDropIndex);
+
+        // Display pickup, drop, and fare information
+        display.clearDisplay();
+        display.setTextSize(1);
+        display.setTextColor(SSD1306_WHITE);
+        display.setCursor(0, 0);
+        display.print(F("Pickup: "));
+        display.println(locations[selectedPickupIndex]);
+        display.print(F("Drop: "));
+        display.println(locations[selectedDropIndex]);
+
+        if (fare >= 0) {
+          display.print(F("Fare: $"));
+          display.println(fare, 2); // Display fare with 2 decimal places
+        } else {
+          display.println(F("Invalid locations"));
+        }
+
+        display.display();
+
+        delay(5000); // Display information for 5 seconds (adjust as needed)
+        selectedOption = 1; // Return to the main menu
+      } else {
+        Serial.println(F("Please select both pickup and drop locations."));
+      }
+    } else if (selectedOption == 4) {
+      // Exit option selected
+      Serial.println(F("Exit option selected"));
+      // Implement exit logic here
+      selectedPickupIndex = -1;
+      selectedDropIndex = -1;
+      fare = -1.0;
+    }
   }
 
   if (digitalRead(buttonExit) == LOW) {
     delay(200); // debounce
-    // Handle exit or go back
+    // Handle exit
+    selectedOption = 1; // Return to the main menu
+    selectedPickupIndex = -1;
+    selectedDropIndex = -1;
+    fare = -1.0;
   }
 }
 
-void executeOption(int option) {
-  // Implement logic for each menu option
-  switch (option) {
-    case 1:
-      displayDestinations();
-      break;
-    case 2:
-      // Execute code for option 2
-      break;
-    case 3:
-      // Execute code for option 3
-      break;
-    case 4:
-      // Execute code for option 4
-      break;
-  }
-}
-void displayDestinations() {
+void displayMenu(int option) {
   display.clearDisplay();
   display.setTextSize(1);
   display.setTextColor(SSD1306_WHITE);
   display.setCursor(0, 0);
 
-  // Display destinations
-  const char* destinations[] = {
-    "Akurdi Railway Station",
-    "Akurdi Police Station",
-    "Sambhaji Chowk",
-    "Bijalinagar Corner",
-    // ... add more destinations as needed ...
-    "Chhatrapati Shivaji Maharaj Putala Ma.Na.Pa.",
-    "Manapa Bhavan - Mangala Talkies"
-  };
+  // Display menu options
+  display.print(F("1. Select Pickup.\n"));
+  display.print(F("2. Select Drop.\n"));
+  display.print(F("3. Payment.\n"));
+  display.print(F("4. Exit.\n"));
 
-  for (int i = 0; i < sizeof(destinations) / sizeof(destinations[0]); ++i) {
-    display.println(destinations[i]);
+  // Highlight the selected option
+  display.setCursor(0, (option - 1) * 8);
+  display.setTextColor(SSD1306_BLACK, SSD1306_WHITE);
+  display.print(option);
+  display.setTextColor(SSD1306_WHITE);
+
+  display.display();
+}
+
+int selectLocation(const char *title, int &selectedIndex) {
+  selectedIndex = 0;
+
+  while (true) {
+    display.clearDisplay();
+    display.setTextSize(1);
+    display.setTextColor(SSD1306_WHITE);
+    display.setCursor(0, 0);
+    display.println(title);
+
+    for (int i = selectedIndex; i < min(selectedIndex + SCREEN_HEIGHT / 8, sizeof(locations) / sizeof(locations[0])); ++i) {
+      // Display numbers along with locations
+      display.print(i + 1);
+      display.print(". ");
+
+      // Highlight the selected location
+      if (i == selectedIndex) {
+        display.setTextColor(SSD1306_BLACK, SSD1306_WHITE);
+        display.print(">");
+      } else {
+        display.setTextColor(SSD1306_WHITE);
+        display.print(" ");
+      }
+
+      display.println(locations[i]);
+    }
+
+    display.display();
+
+    if (digitalRead(buttonUp) == LOW) {
+      delay(200); // debounce
+      selectedIndex = (selectedIndex > 0) ? (selectedIndex - 1) : 0;
+    }
+
+    if (digitalRead(buttonDown) == LOW) {
+      delay(200); // debounce
+      selectedIndex = (selectedIndex < sizeof(locations) / sizeof(locations[0]) - 1) ? (selectedIndex + 1) : selectedIndex;
+    }
+
+    if (digitalRead(buttonEnter) == LOW) {
+      delay(200); // debounce
+      // User has selected a location, exit the function
+      display.clearDisplay();
+      display.display();
+      Serial.print(F("Selected Location Index: "));
+      Serial.println(selectedIndex);
+      return selectedIndex;
+    }
+
+    if (digitalRead(buttonExit) == LOW) {
+      delay(200); // debounce
+      return -1; // Indicate exit
+    }
   }
+}
 
-  display.display();
-  delay(5000); // Display destinations for 5 seconds (adjust as needed)
-  display.clearDisplay();
-  display.display();
+float calculateFare(int pickupIndex, int dropIndex) {
+  const float farePerStop = 10.0;
+  const float baseFare = 5.0;
+
+  float fare = abs(dropIndex - pickupIndex) * farePerStop + baseFare;
+
+  return fare;
 }
