@@ -43,6 +43,9 @@ int selectedOption = 1; // Initial menu option
 void displayMenu(int option);
 int selectLocation(const char *title, int &selectedIndex);
 float calculateFare(int pickupIndex, int dropIndex);
+void handleOption(int option);
+void handlePaymentOption();
+void returnToMainMenu();
 
 void setup() {
   Serial.begin(9600);
@@ -78,61 +81,13 @@ void loop() {
 
   if (digitalRead(buttonEnter) == LOW) {
     delay(200); // debounce
-    if (selectedOption == 1) {
-      // Select Pickup
-      selectedPickupIndex = selectLocation("Select Pickup", selectedPickupIndex);
-    } else if (selectedOption == 2) {
-      // Select Drop
-      selectedDropIndex = selectLocation("Select Drop", selectedDropIndex);
-    } else if (selectedOption == 3) {
-      // Payment option selected
-      Serial.println(F("Payment option selected"));
-
-      // Check if both pickup and drop locations are selected
-      if (selectedPickupIndex != -1 && selectedDropIndex != -1) {
-        fare = calculateFare(selectedPickupIndex, selectedDropIndex);
-
-        // Display pickup, drop, and fare information
-        display.clearDisplay();
-        display.setTextSize(1);
-        display.setTextColor(SSD1306_WHITE);
-        display.setCursor(0, 0);
-        display.print(F("Pickup: "));
-        display.println(locations[selectedPickupIndex]);
-        display.print(F("Drop: "));
-        display.println(locations[selectedDropIndex]);
-
-        if (fare >= 0) {
-          display.print(F("Fare: $"));
-          display.println(fare, 2); // Display fare with 2 decimal places
-        } else {
-          display.println(F("Invalid locations"));
-        }
-
-        display.display();
-
-        delay(5000); // Display information for 5 seconds (adjust as needed)
-        selectedOption = 1; // Return to the main menu
-      } else {
-        Serial.println(F("Please select both pickup and drop locations."));
-      }
-    } else if (selectedOption == 4) {
-      // Exit option selected
-      Serial.println(F("Exit option selected"));
-      // Implement exit logic here
-      selectedPickupIndex = -1;
-      selectedDropIndex = -1;
-      fare = -1.0;
-    }
+    handleOption(selectedOption);
   }
 
-  if (digitalRead(buttonExit) == LOW) {
+  // Check if in Payment option and Exit button is pressed
+  if (selectedOption == 3 && digitalRead(buttonExit) == LOW) {
     delay(200); // debounce
-    // Handle exit
-    selectedOption = 1; // Return to the main menu
-    selectedPickupIndex = -1;
-    selectedDropIndex = -1;
-    fare = -1.0;
+    returnToMainMenu();
   }
 }
 
@@ -220,4 +175,77 @@ float calculateFare(int pickupIndex, int dropIndex) {
   float fare = abs(dropIndex - pickupIndex) * farePerStop + baseFare;
 
   return fare;
+}
+
+void handleOption(int option) {
+  if (option == 1) {
+    // Select Pickup
+    selectedPickupIndex = selectLocation("Select Pickup", selectedPickupIndex);
+  } else if (option == 2) {
+    // Select Drop
+    selectedDropIndex = selectLocation("Select Drop", selectedDropIndex);
+  } else if (option == 3) {
+    handlePaymentOption();
+  } else if (option == 4) {
+    // Exit option selected
+    Serial.println(F("Exit option selected"));
+    // Implement exit logic here
+    returnToMainMenu();
+  }
+}
+
+
+void handlePaymentOption() {
+  int exitStatus = -1;
+
+  // Payment option selected
+  Serial.println(F("Payment option selected"));
+
+  // Check if both pickup and drop locations are selected
+  if (selectedPickupIndex != -1 && selectedDropIndex != -1) {
+    fare = calculateFare(selectedPickupIndex, selectedDropIndex);
+
+    // Display pickup, drop, and fare information
+    display.clearDisplay();
+    display.setTextSize(1);
+    display.setTextColor(SSD1306_WHITE);
+    display.setCursor(0, 0);
+    display.print(F("Pickup: "));
+    display.println(locations[selectedPickupIndex]);
+    display.print(F("Drop: "));
+    display.println(locations[selectedDropIndex]);
+
+    if (fare >= 0) {
+      display.print(F("Fare: $"));
+      display.println(fare, 2); // Display fare with 2 decimal places
+    } else {
+      display.println(F("Invalid locations"));
+    }
+
+    display.display();
+
+    // Dynamic delay allowing responsiveness
+    unsigned long startTime = millis();
+    while ((millis() - startTime) < 5000) {
+      if (digitalRead(buttonExit) == LOW) {
+        delay(200); // debounce
+        exitStatus = 1; // Indicate exit
+        break;
+      }
+    }
+  } else {
+    Serial.println(F("Please select both pickup and drop locations."));
+  }
+
+  if (exitStatus == 1) {
+    returnToMainMenu();
+  }
+}
+
+
+void returnToMainMenu() {
+  selectedOption = 1; // Return to the main menu
+  selectedPickupIndex = -1;
+  selectedDropIndex = -1;
+  fare = -1.0;
 }
