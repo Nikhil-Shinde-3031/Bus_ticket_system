@@ -1,105 +1,300 @@
-#include <I2C_RTC.h>
-
 #include <Wire.h>
-#include <RTClib.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
 
-const int entrySensorPin = 2;
-const int exitSensorPin = 3;
-const int entryLedPin = 5;
-const int exitLedPin = 6;
+#define SCREEN_WIDTH 128
+#define SCREEN_HEIGHT 64
+#define OLED_RESET -1
 
-RTC_DS3232 rtc; // Create an RTC object
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
-int entryCount = 0;
-int exitCount = 0;
-int totalPersons = 0;
+const int buttonUp = A0;
+const int buttonDown = A1;
+const int buttonEnter = A2;
+const int buttonExit = A3;
+
+// List of all locations
+const char *locations[] = {
+  "Akurdi Railway St",
+  "Sambhaji Chowk",
+  "Bijalinagar Corn",
+  "Chaphekar Chowk",
+  "Chinchwad Gaon",
+  "M.M.School BRTS",
+  "Rahatani Phata",
+  "Pimple Saudagar",
+  "Pune Vidyapeeth",
+  "Shivajinagar",
+  "C.O.E.P.Hostel ",
+  "Manapa Bhavan"
+};
+
+int selectedPickupIndex = -1;
+int selectedDropIndex = -1;
+float fare = -1.0;
+
+int selectedOption = 1; // Initial menu option
+
+bool paymentSectionActive = false;  // Flag to indicate if payment section is active
+bool paymentCompleted = false;  // Flag to indicate if payment is completed
+
+int count = 0;
+char c;
+String id;
 
 void setup() {
   Serial.begin(9600);
-  Wire.begin(); // Initialize I2C communication
 
-  pinMode(entrySensorPin, INPUT);
-  pinMode(exitSensorPin, INPUT);
-  pinMode(entryLedPin, OUTPUT);
-  pinMode(exitLedPin, OUTPUT);
-
-  // Initialize RTC
-  if (!rtc.begin()) {
-    Serial.println("RTC initialization failed!");
-    while (1); // Stop execution if RTC initialization fails
+  if (!display.begin(SSD1306_PAGEADDR, 0x3C)) {
+    Serial.println(F("SSD1306 allocation failed"));
+    for (;;);
   }
 
-  // Uncomment the following line to set the RTC to the date and time of compiling the sketch
-  // rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
+  pinMode(buttonUp, INPUT_PULLUP);
+  pinMode(buttonDown, INPUT_PULLUP);
+  pinMode(buttonEnter, INPUT_PULLUP);
+  pinMode(buttonExit, INPUT_PULLUP);
+
+  delay(2000);
+  display.clearDisplay();
+  display.display();
+
+  Serial.println("Please select pickup and drop locations.");
 }
 
 void loop() {
-  // Read current time from RTC
-  DateTime now = rtc.now();
+  displayMenu(selectedOption);
 
-  // Check if a person is entering
-  if (digitalRead(entrySensorPin) == HIGH) {
-    delay(1000);  // Debounce delay (adjust as needed)
-    if (digitalRead(entrySensorPin) == HIGH) {
-      entryCount++;
-      totalPersons++;
-      updateDatabase(now, "enter", entryCount);
-      Serial.println("Enter," + String(entryCount));
-      indicateEntry();
-      printTotalPersons();
-    }
+  // Check button presses
+  if (digitalRead(buttonUp) == LOW) {
+    delay(200); // debounce
+    selectedOption = (selectedOption > 1) ? (selectedOption - 1) : 4;
   }
 
-  // Check if a person is exiting
-  if (digitalRead(exitSensorPin) == HIGH && exitCount < entryCount) {
-    delay(1000);  // Debounce delay (adjust as needed)
-    if (digitalRead(exitSensorPin) == HIGH) {
-      exitCount++;
-      totalPersons--;
-      updateDatabase(now, "exit", exitCount);
-      Serial.println("Exit," + String(exitCount));
-      indicateExit();
-      printTotalPersons();
-    }
+  if (digitalRead(buttonDown) == LOW) {
+    delay(200); // debounce
+    selectedOption = (selectedOption < 4) ? (selectedOption + 1) : 1;
   }
 
-  // Add additional logic or functionality as needed
+  if (digitalRead(buttonEnter) == LOW) {
+    delay(200); // debounce
+    handleOption(selectedOption);
+  }
 
-  delay(500);  // Adjust the delay based on your requirements
+  // Check if in Payment option and Exit button is pressed
+  if (selectedOption == 3 && digitalRead(buttonExit) == LOW) {
+    delay(200); // debounce
+    if (paymentSectionActive) {
+      returnToMainMenu();
+    } else {
+      handlePaymentOption();
+    }
+  }
 }
 
-void updateDatabase(DateTime timestamp, String direction, int count) {
-  // Include timestamp, direction, and count in the database entry
-  Serial.print(timestamp.year(), DEC);
-  Serial.print('/');
-  Serial.print(timestamp.month(), DEC);
-  Serial.print('/');
-  Serial.print(timestamp.day(), DEC);
-  Serial.print(' ');
-  Serial.print(timestamp.hour(), DEC);
-  Serial.print(':');
-  Serial.print(timestamp.minute(), DEC);
-  Serial.print(':');
-  Serial.print(timestamp.second(), DEC);
-  Serial.print(",");
-  Serial.print(direction);
-  Serial.print(",");
-  Serial.println(count);
+void displayMenu(int option) {
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setTextColor(SSD1306_WHITE);
+  display.setCursor(0, 0);
+
+  // Display menu options
+  display.print(F("1. Select Pickup.\n"));
+  display.print(F("2. Select Drop.\n"));
+  display.print(F("3. Payment.\n"));
+  display.print(F("4. Exit.\n"));
+
+  // Highlight the selected option
+  display.setCursor(0, (option - 1) * 8);
+  display.setTextColor(SSD1306_BLACK, SSD1306_WHITE);
+  display.print(option);
+  display.setTextColor(SSD1306_WHITE);
+
+  display.display();
 }
 
-void indicateEntry() {
-  digitalWrite(entryLedPin, HIGH);  // Turn on green LED
-  delay(1000);  // Indication duration (adjust as needed)
-  digitalWrite(entryLedPin, LOW);   // Turn off green LED
+int selectLocation(const char *title, int &selectedIndex) {
+  selectedIndex = 0;
+
+  while (true) {
+    display.clearDisplay();
+    display.setTextSize(1);
+    display.setTextColor(SSD1306_WHITE);
+    display.setCursor(0, 0);
+    display.println(title);
+
+    for (int i = selectedIndex; i < min(selectedIndex + SCREEN_HEIGHT / 8, sizeof(locations) / sizeof(locations[0])); ++i) {
+      // Display numbers along with locations
+      display.print(i + 1);
+      display.print(". ");
+
+      // Highlight the selected location
+      if (i == selectedIndex) {
+        display.setTextColor(SSD1306_BLACK, SSD1306_WHITE);
+        display.print(">");
+      } else {
+        display.setTextColor(SSD1306_WHITE);
+        display.print(" ");
+      }
+
+      display.println(locations[i]);
+    }
+
+    display.display();
+
+    if (digitalRead(buttonUp) == LOW) {
+      delay(200); // debounce
+      selectedIndex = (selectedIndex > 0) ? (selectedIndex - 1) : 0;
+    }
+
+    if (digitalRead(buttonDown) == LOW) {
+      delay(200); // debounce
+      selectedIndex = (selectedIndex < sizeof(locations) / sizeof(locations[0]) - 1) ? (selectedIndex + 1) : selectedIndex;
+    }
+
+    if (digitalRead(buttonEnter) == LOW) {
+      delay(200); // debounce
+      // User has selected a location, exit the function
+      display.clearDisplay();
+      display.display();
+      Serial.print(F("Selected Location Index: "));
+      Serial.println(selectedIndex);
+      return selectedIndex;
+    }
+
+    if (digitalRead(buttonExit) == LOW) {
+      delay(200); // debounce
+      return -1; // Indicate exit
+    }
+  }
 }
 
-void indicateExit() {
-  digitalWrite(exitLedPin, HIGH);   // Turn on red LED
-  delay(1000);  // Indication duration (adjust as needed)
-  digitalWrite(exitLedPin, LOW);    // Turn off red LED
+float calculateFare(int pickupIndex, int dropIndex) {
+  const float farePerStop = 10.0;
+  const float baseFare = 5.0;
+
+  float fare = abs(dropIndex - pickupIndex) * farePerStop + baseFare;
+
+  return fare;
 }
 
-void printTotalPersons() {
-  Serial.print("Total Persons: ");
-  Serial.println(totalPersons);
+void handleOption(int option) {
+  if (option == 1) {
+    // Select Pickup
+    selectedPickupIndex = selectLocation("Select Pickup", selectedPickupIndex);
+  } else if (option == 2) {
+    // Select Drop
+    selectedDropIndex = selectLocation("Select Drop", selectedDropIndex);
+  } else if (option == 3) {
+    handlePaymentOption();
+  } else if (option == 4) {
+    // Exit option selected
+    Serial.println(F("Exit option selected"));
+    // Implement exit logic here
+    returnToMainMenu();
+  }
+}
+
+void handlePaymentOption() {
+  // Payment option selected
+  Serial.println(F("Payment option selected"));
+
+  // Check if both pickup and drop locations are selected
+  if (selectedPickupIndex != -1 && selectedDropIndex != -1) {
+    fare = calculateFare(selectedPickupIndex, selectedDropIndex);
+
+    // Display pickup, drop, and fare information
+    display.clearDisplay();
+    display.setTextSize(1);
+    display.setTextColor(SSD1306_WHITE);
+    display.setCursor(0, 0);
+    display.print(F("Pickup: "));
+    display.println(locations[selectedPickupIndex]);
+    display.print(F("Drop: "));
+    display.println(locations[selectedDropIndex]);
+
+    if (fare != -1.0) {
+      display.print(F("Fare: $"));
+      display.println(fare, 2);
+    } else {
+      display.println(F("Invalid locations"));
+    }
+
+    display.print(F("Scan RFID to complete payment."));
+
+    display.display();
+
+    // Activate payment section
+    paymentSectionActive = true;
+
+    // Buffer to store RFID data
+    char rfidBuffer[13];
+    int bufferIndex = 0;
+
+    // Expected RFID tag
+    const char expectedRFID[] = "AB123456789A";
+
+    // Wait until payment is completed or exit button is pressed
+    while (!paymentCompleted) {
+      // Check if the exit button is pressed
+      if (digitalRead(buttonExit) == LOW) {
+        returnToMainMenu();
+        break;
+      }
+
+      // Simulate RFID tag scanning
+      while (Serial.available() > 0) {
+        char c = Serial.read();
+
+        // Check if the character is alphanumeric and buffer is not full
+        if (isAlphaNumeric(c) && bufferIndex < 12) {
+          rfidBuffer[bufferIndex++] = c;
+        }
+
+        // Introduce a delay to ensure complete RFID data is received
+        delay(10);
+      }
+
+      // Check if the buffer contains a complete RFID tag
+      if (bufferIndex == 12) {
+        rfidBuffer[bufferIndex] = '\0'; // Null-terminate the string
+
+        // Check if the scanned RFID is valid
+        if (strcmp(rfidBuffer, expectedRFID) == 0) {
+          Serial.println(F("Valid RFID. Payment completed."));
+          paymentCompleted = true;
+          // You might want to add additional logic or trigger an external event for payment completion
+        } else {
+          Serial.println(F("Invalid RFID. Payment not completed."));
+          Serial.print(F("Expected RFID: "));
+          Serial.println(expectedRFID);
+        }
+
+        // Clear the buffer for the next scan
+        bufferIndex = 0;
+      }
+
+      // Introduce a delay before checking again
+      delay(100);
+    }
+
+    // Reset flags
+    paymentSectionActive = false;
+    paymentCompleted = false;
+  } else {
+    Serial.println(F("Please select both pickup and drop locations."));
+  }
+}
+
+
+
+
+
+void returnToMainMenu() {
+  selectedOption = 1; // Return to the main menu
+  selectedPickupIndex = -1;
+  selectedDropIndex = -1;
+  fare = -1.0;
+
+  Serial.println("Please select pickup and drop locations.");
 }
