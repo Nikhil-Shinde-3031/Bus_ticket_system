@@ -1,0 +1,126 @@
+#include <SPI.h>
+#include <MFRC522.h>
+
+#define RST_PIN   9  // Configurable, but usually this pin works
+#define SS_PIN    10 // Configurable, but usually this pin works
+
+MFRC522 mfrc522(SS_PIN, RST_PIN); // Create MFRC522 instance
+
+// List of all locations
+const char *locations[] = {
+  "Akurdi Railway St",
+  "Sambhaji Chowk",
+  "Bijalinagar Corn",
+  "Chaphekar Chowk",
+  "Chinchwad Gaon",
+  "M.M.School BRTS",
+  "Rahatani Phata",
+  "Pimple Saudagar",
+  "Pune Vidyapeeth",
+  "Shivajinagar",
+  "C.O.E.P.Hostel ",
+  "Manapa Bhavan"
+};
+
+int selectedPickupIndex = -1;
+int selectedDropIndex = -1;
+float fare = -1.0;
+
+// Define RFID codes and corresponding payment counts
+const int NUM_RFID_CODES = 2; // Number of RFID codes
+const char* rfidCodes[NUM_RFID_CODES] = {"YOUR_RFID_CODE_1", "YOUR_RFID_CODE_2"}; // Replace with your RFID codes
+int payments[NUM_RFID_CODES] = {0}; // Payment counts for each RFID code
+
+void setup() {
+  Serial.begin(9600);
+  SPI.begin();        // Init SPI bus
+  mfrc522.PCD_Init(); // Init MFRC522
+
+  Serial.println("Please select pickup and drop locations.");
+}
+
+void loop() {
+  handleOption(selectedPickupIndex, selectedDropIndex);
+}
+
+int selectLocation(const char *title) {
+  int selectedIndex = -1;
+
+  Serial.println(title);
+  for (int i = 0; i < sizeof(locations) / sizeof(locations[0]); ++i) {
+    Serial.print(i + 1);
+    Serial.print(". ");
+    Serial.println(locations[i]);
+  }
+
+  while (selectedIndex == -1) {
+    Serial.println("Enter the number of your selection:");
+    while (!Serial.available());
+    int choice = Serial.parseInt();
+    if (choice >= 1 && choice <= sizeof(locations) / sizeof(locations[0])) {
+      selectedIndex = choice - 1;
+    } else {
+      Serial.println("Invalid selection. Please enter a valid number.");
+    }
+  }
+
+  return selectedIndex;
+}
+
+float calculateFare(int pickupIndex, int dropIndex) {
+  const float farePerStop = 10.0;
+  const float baseFare = 5.0;
+
+  float fare = abs(dropIndex - pickupIndex) * farePerStop + baseFare;
+
+  return fare;
+}
+
+void handleOption(int& selectedPickupIndex, int& selectedDropIndex) {
+  selectedPickupIndex = selectLocation("Select Pickup:");
+  selectedDropIndex = selectLocation("Select Drop:");
+
+  if (selectedPickupIndex != -1 && selectedDropIndex != -1) {
+    fare = calculateFare(selectedPickupIndex, selectedDropIndex);
+    Serial.print("Fare: $");
+    Serial.println(fare);
+    handlePaymentOption();
+  } else {
+    Serial.println("Invalid locations.");
+  }
+}
+
+void handlePaymentOption() {
+  Serial.println("Scan RFID to complete payment.");
+
+  // Check for RFID scan
+  if (mfrc522.PICC_IsNewCardPresent() && mfrc522.PICC_ReadCardSerial()) {
+    handleRFIDScan();
+  }
+}
+
+void handleRFIDScan() {
+  // Read RFID tag
+  String scannedRFID = "";
+  for (byte i = 0; i < mfrc522.uid.size; i++) {
+    scannedRFID += String(mfrc522.uid.uidByte[i] < 0x10 ? "0" : "");
+    scannedRFID += String(mfrc522.uid.uidByte[i], HEX);
+  }
+  
+  // Perform necessary actions based on scanned RFID
+  for (int i = 0; i < NUM_RFID_CODES; ++i) {
+    if (scannedRFID.equals(rfidCodes[i])) {
+      Serial.println("Valid RFID. Payment completed.");
+      payments[i]++; // Increment payment count for the corresponding RFID code
+      // Additional logic for successful payment
+      return;
+    }
+  }
+  
+  Serial.println("Invalid RFID. Payment not completed.");
+  // Additional logic for unsuccessful payment
+
+  // Halt reading until card is removed
+  mfrc522.PICC_HaltA();
+  mfrc522.PCD_StopCrypto1();
+}
